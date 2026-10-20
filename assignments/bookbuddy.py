@@ -1,10 +1,20 @@
 import os
 import yaml
-from crewai import Agent, Crew, Process, Task
+from dotenv import load_dotenv
+from crewai import Agent, Crew, Process, Task, LLM
 from crewai.project import CrewBase, agent, crew, task
 
-# Path to the config directory
+load_dotenv()
+
+llm = LLM(
+    model="gemini/gemini-3.1-flash-lite",  # đổi sang gemini-2.5-flash nếu bị 503
+    api_key=os.environ["GEMINI_API_KEY"],
+    temperature=0,
+)
+
 CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
+
+
 
 @CrewBase
 class BaseBookBuddyCrew:
@@ -14,8 +24,13 @@ class BaseBookBuddyCrew:
     def __init__(self, blurb: str):
         self.blurb = blurb
 
-        # TODO: Load agents.yaml into self.agents_config
-        # TODO: Load tasks.yaml into self.tasks_config
+        # Load agent configs
+        with open(self.agents_config_path, "r") as f:
+            self.agents_config = yaml.safe_load(f)
+
+        # Load task configs
+        with open(self.tasks_config_path, "r") as f:
+            self.tasks_config = yaml.safe_load(f)
 
     # --------------------
     # Agents
@@ -23,13 +38,21 @@ class BaseBookBuddyCrew:
 
     @agent
     def genre_detector_agent(self) -> Agent:
-        # TODO: Create an Agent using self.agents_config["genre_detector_agent"]
-        pass
+        return Agent(
+            config=self.agents_config["genre_detector_agent"],
+            llm=llm,
+            allow_delegation=False,
+            verbose=True
+        )
 
     @agent
     def tagline_writer_agent(self) -> Agent:
-        # TODO: Create an Agent using self.agents_config["tagline_writer_agent"]
-        pass
+        return Agent(
+            config=self.agents_config["tagline_writer_agent"],
+            llm=llm,
+            allow_delegation=False,
+            verbose=True
+        )
 
     # --------------------
     # Tasks
@@ -37,13 +60,22 @@ class BaseBookBuddyCrew:
 
     @task
     def detect_genre_task(self) -> Task:
-        # TODO: Create a Task using self.tasks_config["detect_genre_task"]
-        pass
+        task_cfg = self.tasks_config["detect_genre_task"]
+        return Task(
+            description=task_cfg["description"],
+            agent=self.genre_detector_agent(),
+            expected_output=task_cfg["expected_output"]
+        )
 
     @task
     def write_tagline_task(self) -> Task:
-        # TODO: Create a Task using self.tasks_config["write_tagline_task"]
-        pass
+        task_cfg = self.tasks_config["write_tagline_task"]
+        return Task(
+            description=task_cfg["description"],
+            agent=self.tagline_writer_agent(),
+            expected_output=task_cfg["expected_output"]
+        )
+
 
 # --------------------
 # Crew Assembly
@@ -53,8 +85,21 @@ class BaseBookBuddyCrew:
 class BookBuddyCrew(BaseBookBuddyCrew):
     @crew
     def crew(self) -> Crew:
-        # TODO: Assemble agents and tasks in sequential order
-        pass
+        tasks = [
+            self.detect_genre_task(),
+            self.write_tagline_task()
+        ]
+        agents = [
+            self.genre_detector_agent(),
+            self.tagline_writer_agent()
+        ]
+        return Crew(
+            agents=agents,
+            tasks=tasks,
+            process=Process.sequential,
+            verbose=True
+        )
+
 
 # --------------------
 # Main Execution (tests)
@@ -64,5 +109,12 @@ if __name__ == "__main__":
     print("=== BookBuddyCrew Test Run ===")
     blurb = "A brave knight sets out on a quest to save the kingdom from a dragon."
 
-    # TODO: Instantiate BookBuddyCrew with the blurb
-    # TODO: Run crew.kickoff() with correct input and print results
+    crew = BookBuddyCrew(blurb=blurb).crew()
+
+    print("\nRunning crew with sample blurb:")
+    print(f"Blurb: {blurb}\n")
+
+    crew_output = crew.kickoff(inputs={'blurb': blurb})
+
+    print(f"Raw Output: {crew_output}")
+
